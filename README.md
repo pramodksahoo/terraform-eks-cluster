@@ -74,9 +74,9 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 ### Network Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────-┐
 │                           VPC                                    │
-├─────────────────────────────────────────────────────────────────┤
+├─────────────────────────────────────────────────────────────────-┤
 │  ┌─────────────────┐                    ┌─────────────────┐      │
 │  │   Public Subnet │                    │  Private Subnet │      │
 │  │   (AZ A)        │                    │   (AZ A)        │      │
@@ -104,7 +104,7 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 │  │ │             │ │                    │ │   Nodes     │ │      │
 │  │ └─────────────┘ │                    │ └─────────────┘ │      │
 │  └─────────────────┘                    └─────────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────-┘
 ```
 
 ## 🧩 Infrastructure Components
@@ -130,7 +130,7 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 
 **Configuration:**
 - **Version**: 7.8.26
-- **Domain**: cluster-dev.viewar.com
+- **Domain**: cluster.example.com
 - **Authentication**: Admin user enabled
 - **RBAC**: Custom policies for team access
 
@@ -178,7 +178,7 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 - **Version**: v1.17.2
 - **Issuer**: Let's Encrypt Production
 - **Challenge Type**: HTTP-01
-- **Email**: monitor@viewar.com
+- **Email**: monitor@example.com
 
 **Features:**
 - Automated certificate provisioning
@@ -192,7 +192,7 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 
 1. **AWS CLI Setup**
    ```bash
-   aws configure --profile viewar-s3-terraform
+   aws configure --profile example-s3-terraform
    AWS Access Key ID [None]: YOUR_ACCESS_KEY
    AWS Secret Access Key [None]: YOUR_SECRET_KEY
    Default region name [None]: eu-central-1
@@ -200,7 +200,7 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
    ```
 
 2. **Required AWS Services**
-   - S3 bucket for Terraform state: `viewar-terraform-state`
+   - S3 bucket for Terraform state: `example-terraform-state`
    - DynamoDB table for state locking: `terraform-eks-dev-state-locking`
    - VPC with public and private subnets
    - IAM roles for EKS and Karpenter
@@ -269,7 +269,7 @@ public_subnet_ids = [
 ]
 
 # Cluster Configuration
-cluster_name = "viewar-dev"
+cluster_name = "example-cluster"
 cluster_version = "1.33"
 
 # Node Group Configuration
@@ -292,7 +292,7 @@ terraform apply
 
 ```bash
 # Get cluster credentials
-aws eks update-kubeconfig --region eu-central-1 --name viewar-dev --profile viewar-s3-terraform
+aws eks update-kubeconfig --region eu-central-1 --name example-cluster --profile example-s3-terraform
 
 # Verify connection
 kubectl get nodes
@@ -353,7 +353,7 @@ For different environments (dev, staging, prod), modify the following:
 1. **Prerequisites Check**
    ```bash
    # Verify AWS credentials
-   aws sts get-caller-identity --profile viewar-s3-terraform
+   aws sts get-caller-identity --profile example-s3-terraform
    
    # Check Terraform version
    terraform version
@@ -396,8 +396,8 @@ For different environments (dev, staging, prod), modify the following:
 4. **Subnet Tagging** (if using existing subnets)
    ```bash
    # Update subnet tags for Karpenter discovery
-   aws ec2 create-tags --resources subnet-xxx --tags Key=kubernetes.io/cluster/viewar-dev,Value=shared
-   aws ec2 create-tags --resources subnet-xxx --tags Key=karpenter.sh/discovery/dev,Value=viewar-dev
+   aws ec2 create-tags --resources subnet-xxx --tags Key=kubernetes.io/cluster/example-cluster,Value=shared
+   aws ec2 create-tags --resources subnet-xxx --tags Key=karpenter.sh/discovery/dev,Value=example-cluster
    ```
 
 ### Deployment Validation
@@ -592,9 +592,7 @@ kubectl get clusterissuers
 
 1. **Cluster Creation Failures**
    ```bash
-   # Check CloudFormation events
-   aws cloudformation describe-stack-events --stack-name eksctl-viewar-dev-cluster
-   
+  
    # Verify IAM permissions
    aws iam get-role --role-name eks-cluster-role
    ```
@@ -602,7 +600,7 @@ kubectl get clusterissuers
 2. **Node Group Issues**
    ```bash
    # Check node group status
-   aws eks describe-nodegroup --cluster-name viewar-dev --nodegroup-name dev-cluster-primary
+   aws eks describe-nodegroup --cluster-name example-cluster --nodegroup-name example-cluster-primary
    
    # View node group logs
    kubectl logs -n kube-system -l app=aws-node
