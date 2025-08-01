@@ -39,6 +39,187 @@ This Terraform deployment creates a production-ready Amazon EKS cluster with int
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TB
+    %% External Services Layer
+    subgraph "External Services & Network"
+        subgraph "Network Components"
+            IGW[Internet Gateway]
+            PS[Public Subnets<br/>AZ-A, AZ-B, AZ-C]
+            NAT[NAT Gateway]
+            PRS[Private Subnets<br/>AZ-A, AZ-B, AZ-C]
+        end
+        
+        subgraph "External Services"
+            GIT[Git Repository]
+            LE[Let's Encrypt]
+            AWS_EC2[AWS EC2 API]
+            AWS_ALB[AWS Load Balancer]
+            AWS_S3[AWS S3 State]
+            AWS_DDB[AWS DynamoDB Lock]
+        end
+    end
+
+    %% EKS Control Plane Layer
+    subgraph "EKS Control Plane"
+        CP[API Server<br/>Multi-AZ]
+        ETCD[etcd Cluster<br/>Multi-AZ]
+        CM[Controller Manager]
+        SCHED[Scheduler]
+        DNS[DNS Controller]
+    end
+
+    %% Service Layer
+    subgraph "Service Layer"
+        subgraph "Security & Access"
+            RBAC[RBAC<br/>Access Control]
+            IAM[IAM Roles<br/>AWS Permissions]
+            SEC_GROUPS[Security Groups<br/>Network Security]
+            NET_POLICY[Network Policies<br/>Pod Communication]
+        end
+        
+        subgraph "Monitoring & Observability"
+            PROM[Prometheus<br/>Metrics]
+            GRAF[Grafana<br/>Dashboards]
+            ALERTS[Alert Manager<br/>Alerts]
+            LOGS[Log Aggregation<br/>Fluent Bit]
+        end
+    end
+
+    %% Application Layer
+    subgraph "Application Layer"
+        subgraph "GitOps & CI/CD"
+            ARGOCD[Argo CD<br/>GitOps Controller]
+            ARGOCD_UI[Argo CD Server<br/>Web UI & API]
+            ARGOCD_REPO[Argo CD Repo<br/>Git Sync]
+        end
+        
+        subgraph "Load Balancing & SSL"
+            NGINX[Nginx Ingress<br/>Controller]
+            NGINX_PODS[Nginx Pods<br/>Multi-AZ]
+            CERT_MGR[Cert Manager<br/>SSL Certificates]
+        end
+        
+        subgraph "Auto-scaling"
+            KARPENTER[Karpenter<br/>Node Provisioning]
+            NODEPOOL[Node Pool<br/>Requirements]
+            HPA[Horizontal Pod<br/>Autoscaler]
+            VPA[Vertical Pod<br/>Autoscaler]
+        end
+        
+        subgraph "Storage & Networking"
+            EBS_CSI[EBS CSI Driver<br/>Block Storage]
+            EFS_CSI[EFS CSI Driver<br/>File Storage]
+            VPC_CNI[AWS VPC CNI<br/>Networking]
+        end
+        
+        subgraph "Applications"
+            APP_SVC[Application<br/>Services]
+            APP_PODS[Application<br/>Pods]
+            APP_INGRESS[Application<br/>Ingress]
+        end
+    end
+
+    %% Kubernetes System Layer
+    subgraph "Kubernetes System"
+        WN[Worker Nodes<br/>Multi-AZ]
+        KUBELET[kubelet<br/>Node Agent]
+        KUBEPROXY[kube-proxy<br/>Network Proxy]
+    end
+
+    %% Key Connections
+    %% Network Flow
+    IGW --> PS
+    PS --> NAT
+    NAT --> PRS
+    
+    %% External to EKS
+    GIT --> ARGOCD_REPO
+    LE --> CERT_MGR
+    AWS_EC2 --> KARPENTER
+    AWS_ALB --> NGINX
+    AWS_S3 --> EBS_CSI
+    AWS_DDB --> EBS_CSI
+    
+    %% EKS Control Plane
+    CP --> WN
+    ETCD --> CP
+    CM --> CP
+    SCHED --> CP
+    DNS --> CP
+    
+    %% Service Layer Connections
+    RBAC --> ARGOCD
+    RBAC --> KARPENTER
+    RBAC --> CERT_MGR
+    IAM --> KARPENTER
+    IAM --> EBS_CSI
+    IAM --> EFS_CSI
+    SEC_GROUPS --> WN
+    NET_POLICY --> APP_PODS
+    
+    %% Monitoring Connections
+    PROM --> WN
+    PROM --> APP_PODS
+    GRAF --> PROM
+    ALERTS --> PROM
+    LOGS --> WN
+    
+    %% Application Layer Connections
+    ARGOCD_REPO --> ARGOCD
+    ARGOCD --> ARGOCD_UI
+    ARGOCD --> APP_PODS
+    
+    NGINX --> NGINX_PODS
+    NGINX_PODS --> APP_PODS
+    CERT_MGR --> NGINX_PODS
+    CERT_MGR --> APP_INGRESS
+    
+    KARPENTER --> NODEPOOL
+    KARPENTER --> WN
+    HPA --> APP_PODS
+    VPA --> APP_PODS
+    
+    EBS_CSI --> APP_PODS
+    EFS_CSI --> APP_PODS
+    VPC_CNI --> WN
+    
+    APP_INGRESS --> NGINX
+    APP_SVC --> APP_PODS
+    
+    %% Worker Node Components
+    WN --> KUBELET
+    WN --> KUBEPROXY
+    WN --> VPC_CNI
+
+    %% Styling
+    classDef network fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef external fill:#607D8B,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef eks fill:#326CE5,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef security fill:#F44336,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef monitoring fill:#9C27B0,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef argocd fill:#326CE5,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef nginx fill:#009639,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef karpenter fill:#FF6B35,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef certmanager fill:#FFD700,stroke:#232F3E,stroke-width:2px,color:#000
+    classDef storage fill:#4CAF50,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef app fill:#4CAF50,stroke:#232F3E,stroke-width:2px,color:#fff
+    classDef k8s fill:#326CE5,stroke:#232F3E,stroke-width:2px,color:#fff
+
+    class IGW,PS,NAT,PRS network
+    class GIT,LE,AWS_EC2,AWS_ALB,AWS_S3,AWS_DDB external
+    class CP,ETCD,CM,SCHED,DNS eks
+    class RBAC,IAM,SEC_GROUPS,NET_POLICY security
+    class PROM,GRAF,ALERTS,LOGS monitoring
+    class ARGOCD,ARGOCD_UI,ARGOCD_REPO argocd
+    class NGINX,NGINX_PODS nginx
+    class KARPENTER,NODEPOOL,HPA,VPA karpenter
+    class CERT_MGR certmanager
+    class EBS_CSI,EFS_CSI,VPC_CNI storage
+    class APP_SVC,APP_PODS,APP_INGRESS app
+    class WN,KUBELET,KUBEPROXY k8s
+```
+
 ### High-Level Architecture
 
 ```
