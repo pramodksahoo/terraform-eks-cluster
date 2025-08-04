@@ -501,7 +501,7 @@ Key configuration variables in `variables.tf`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `cluster_name` | EKS cluster name | `viewar-dev` |
+| `cluster_name` | EKS cluster name | `example-cluster` |
 | `cluster_version` | Kubernetes version | `1.33` |
 | `region` | AWS region | `eu-central-1` |
 | `vpc_id` | VPC ID for the cluster | Required |
