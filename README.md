@@ -3,6 +3,7 @@
 ## 📋 Table of Contents
 
 - [Project Overview](#project-overview)
+- [Project Structure](#project-structure)
 - [Architecture](#architecture)
 - [Infrastructure Components](#infrastructure-components)
 - [Prerequisites](#prerequisites)
@@ -18,6 +19,25 @@
 ## 🎯 Project Overview
 
 This Terraform deployment creates a production-ready Amazon EKS cluster with integrated GitOps, load balancing, auto-scaling, and SSL certificate management capabilities. The infrastructure is designed for high availability, security, and cost efficiency.
+
+## 🏗️ Project Structure
+
+```
+Terraform-EKS/
+├── main.tf                 # Terraform configuration and locals
+├── providers.tf            # Provider configurations
+├── variables.tf            # Input variables
+├── outputs.tf              # Output values
+├── network.tf              # Network configuration (subnet tagging)
+├── eks.tf                  # EKS cluster and add-ons
+├── iam.tf                  # IAM roles and policies
+├── optional-features.tf    # Optional enhancements (disabled by default)
+├── karpenter/              # Karpenter manifests
+├── n-ingres/               # Custom nginx ingress chart
+├── argocd.yaml            # ArgoCD configuration
+├── letsencrypt-issuer.yaml # Let's Encrypt certificate issuer
+└── README.md              # This file
+```
 
 ### Key Features
 
@@ -367,556 +387,183 @@ graph TB
 - Multiple certificate types support
 - Integration with ingress controllers
 
-## 📋 Prerequisites
-
-### AWS Configuration
-
-1. **AWS CLI Setup**
-   ```bash
-   aws configure --profile example-s3-terraform
-   AWS Access Key ID [None]: YOUR_ACCESS_KEY
-   AWS Secret Access Key [None]: YOUR_SECRET_KEY
-   Default region name [None]: eu-central-1
-   Default output format [None]: json
-   ```
-
-2. **Required AWS Services**
-   - S3 bucket for Terraform state: `example-terraform-state`
-   - DynamoDB table for state locking: `terraform-eks-dev-state-locking`
-   - VPC with public and private subnets
-   - IAM roles for EKS and Karpenter
-
-### Local Tools
-
-1. **Terraform** (>= 1.0)
-   ```bash
-   # Install Terraform
-   brew install terraform  # macOS
-   # or download from https://www.terraform.io/downloads.html
-   ```
-
-2. **kubectl** (compatible with Kubernetes 1.33)
-   ```bash
-   # Install kubectl
-   brew install kubectl  # macOS
-   # or download from https://kubernetes.io/docs/tasks/tools/
-   ```
-
-3. **AWS CLI** (>= 2.0)
-   ```bash
-   # Install AWS CLI
-   brew install awscli  # macOS
-   # or download from https://aws.amazon.com/cli/
-   ```
-
-### Required Permissions
-
-The AWS profile must have permissions for:
-- EKS cluster management
-- EC2 instance management
-- IAM role and policy management
-- VPC and networking configuration
-- S3 and DynamoDB access for state management
-
 ## 🚀 Quick Start
 
-### 1. Clone and Initialize
+### Prerequisites
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd Terraform-EKS
+1. **AWS CLI** configured with appropriate credentials
+2. **Terraform** >= 1.0
+3. **kubectl** for cluster interaction
+4. **helm** for package management
 
-# Initialize Terraform
-terraform init
-```
+### Initial Setup
 
-### 2. Configure Variables
+1. **Configure Variables**:
+   ```bash
+   # Copy and modify variables as needed
+   cp variables.tf variables.tf.backup
+   # Edit variables.tf with your values
+   ```
 
-Create a `terraform.tfvars` file with your specific values:
+2. **Initialize Terraform**:
+   ```bash
+   terraform init
+   ```
 
-```hcl
-# Network Configuration
-vpc_id = "vpc-0746459fe6c860319"
-subnet_ids = [
-  "subnet-0d31c021f8ae604c7",
-  "subnet-0f044d4c2c47f6094", 
-  "subnet-0f5e8cc600564d21d"
-]
-public_subnet_ids = [
-  "subnet-0ef75f832c29112bf",
-  "subnet-0f04e8e934b7c9361",
-  "subnet-0dd47da85a4a8aa8c"
-]
+3. **Plan Deployment**:
+   ```bash
+   terraform plan
+   ```
 
-# Cluster Configuration
-cluster_name = "example-cluster"
-cluster_version = "1.33"
+4. **Deploy Infrastructure**:
+   ```bash
+   terraform apply
+   ```
 
-# Node Group Configuration
-primary_min_size = 3
-primary_max_size = 6
-primary_desired_size = 3
-```
+## 📋 Core Components
 
-### 3. Deploy Infrastructure
+### EKS Cluster
+- **Kubernetes Version**: 1.33 (configurable)
+- **Node Groups**: Primary and upgrade node groups
+- **Auto-scaling**: Karpenter for dynamic node provisioning
+- **Security**: Enhanced security groups and IAM roles
 
-```bash
-# Plan the deployment
-terraform plan
+### IAM Roles
+- **KarpenterNodeRole**: For Karpenter-managed nodes
+- **KarpenterControllerRole**: For Karpenter controller (OIDC-based)
+- **PrometheusRole**: For monitoring components
 
-# Apply the configuration
-terraform apply
-```
-
-### 4. Configure kubectl
-
-```bash
-# Get cluster credentials
-aws eks update-kubeconfig --region eu-central-1 --name example-cluster --profile example-s3-terraform
-
-# Verify connection
-kubectl get nodes
-```
-
-### 5. Access Argo CD
-
-```bash
-# Get Argo CD admin password
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-
-# Port forward to access UI
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
-
-Access Argo CD at: https://localhost:8080
-- Username: `admin`
-- Password: (from the command above)
+### Add-ons
+- **Nginx Ingress Controller**: Custom chart for ingress management
+- **Cert Manager**: SSL/TLS certificate management
+- **ArgoCD**: GitOps continuous deployment
+- **EBS CSI Driver**: Persistent volume support
 
 ## ⚙️ Configuration
 
-### Terraform Variables
-
-Key configuration variables in `variables.tf`:
+### Key Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `cluster_name` | EKS cluster name | `example-cluster` |
 | `cluster_version` | Kubernetes version | `1.33` |
 | `region` | AWS region | `eu-central-1` |
-| `vpc_id` | VPC ID for the cluster | Required |
-| `subnet_ids` | Private subnet IDs | Required |
-| `public_subnet_ids` | Public subnet IDs | Required |
-| `primary_min_size` | Minimum nodes in primary group | `3` |
-| `primary_max_size` | Maximum nodes in primary group | `6` |
-| `karpenter_version` | Karpenter version | `1.5.0` |
+| `vpc_id` | VPC ID for the cluster | `vpc-0746459fe6c860319` |
+| `subnet_ids` | Private subnet IDs | `["subnet-0d31c021f8ae604c7", ...]` |
+| `enable_iam_roles` | Enable IAM role creation | `true` |
 
-### Environment-Specific Configuration
+### IAM Role Policies
 
-For different environments (dev, staging, prod), modify the following:
+#### Karpenter Node Role
+- `AmazonEC2ContainerRegistryReadOnly`
+- `AmazonEKS_CNI_Policy`
+- `AmazonEKSWorkerNodePolicy`
+- `AmazonSSMManagedInstanceCore`
 
-1. **Cluster naming**: Update `cluster_name` variable
-2. **Node sizing**: Adjust `primary_min_size`, `primary_max_size`
-3. **Instance types**: Modify `node_instance_type` for different workloads
-4. **Karpenter configuration**: Update instance families and capacity types
+#### Karpenter Controller Role
+- Custom policy with EC2, IAM, EKS, SSM, and Pricing permissions
+- OIDC-based authentication for service accounts
 
-### Security Configuration
+## 🔧 Optional Features
 
-1. **RBAC**: Configure `aws_auth_users` and `aws_auth_roles` in variables
-2. **Network Policies**: Implement network policies for pod-to-pod communication
-3. **Secrets Management**: Use AWS Secrets Manager or HashiCorp Vault
-4. **Pod Security**: Enable Pod Security Standards
+The `optional-features.tf` file contains additional components that can be enabled:
 
-## 📖 Deployment Guide
+### Security Enhancements
+- KMS encryption for EKS
+- Enhanced security groups
+- Network policies
 
-### Step-by-Step Deployment
+### Monitoring Stack
+- Prometheus + Grafana
+- Fluent Bit for logging
+- AWS Load Balancer Controller
 
-1. **Prerequisites Check**
-   ```bash
-   # Verify AWS credentials
-   aws sts get-caller-identity --profile example-s3-terraform
-   
-   # Check Terraform version
-   terraform version
-   
-   # Verify kubectl version compatibility
-   kubectl version --client
-   ```
+### Enablement
+To enable any optional feature:
+1. Edit `optional-features.tf`
+2. Change `count = 0` to `count = 1` for desired resources
+3. Run `terraform plan` and `terraform apply`
 
-2. **Infrastructure Deployment**
-   ```bash
-   # Initialize Terraform
-   terraform init
-   
-   # Validate configuration
-   terraform validate
-   
-   # Plan deployment
-   terraform plan -out=tfplan
-   
-   # Apply configuration
-   terraform apply tfplan
-   ```
+## 🔄 Dependencies and Execution Order
 
-3. **Post-Deployment Verification**
-   ```bash
-   # Verify cluster status
-   kubectl get nodes
-   kubectl get pods --all-namespaces
-   
-   # Check Argo CD deployment
-   kubectl get pods -n argocd
-   
-   # Verify Karpenter installation
-   kubectl get pods -n karpenter
-   
-   # Check Cert Manager
-   kubectl get pods -n cert-manager
-   ```
+1. **Pre-EKS Resources**:
+   - IAM roles (KarpenterNode, Prometheus)
+   - Network configuration
 
-4. **Subnet Tagging** (if using existing subnets)
-   ```bash
-   # Update subnet tags for Karpenter discovery
-   aws ec2 create-tags --resources subnet-xxx --tags Key=kubernetes.io/cluster/example-cluster,Value=shared
-   aws ec2 create-tags --resources subnet-xxx --tags Key=karpenter.sh/discovery/dev,Value=example-cluster
-   ```
+2. **EKS Cluster**:
+   - EKS cluster creation
+   - OIDC provider setup
+   - Node groups
 
-### Deployment Validation
+3. **Post-EKS Resources**:
+   - IAM roles requiring OIDC (KarpenterController)
+   - Kubernetes add-ons
 
-Run these commands to validate the deployment:
+4. **Application Layer**:
+   - Karpenter deployment
+   - Ingress controllers
+   - Monitoring stack
 
-```bash
-# Cluster health check
-kubectl get componentstatuses
+## 🛠️ Maintenance
 
-# Node status
-kubectl get nodes -o wide
+### Upgrading Kubernetes Version
+1. Update `cluster_version` variable
+2. Update `upgrade_version` variable
+3. Run `terraform plan` and `terraform apply`
 
-# Pod status across all namespaces
-kubectl get pods --all-namespaces
+### Adding New IAM Roles
+1. Add role definition to `iam.tf`
+2. Update `locals` block in `main.tf` for aws-auth
+3. Apply changes
 
-# Service status
-kubectl get svc --all-namespaces
+### Scaling Node Groups
+- **Automatic**: Karpenter handles dynamic scaling
+- **Manual**: Update node group variables in `variables.tf`
 
-# Argo CD application status
-kubectl get applications -n argocd
-
-# Karpenter node pools
-kubectl get nodepools
-
-# Cert Manager issuers
-kubectl get clusterissuers
-```
-
-## 📊 Monitoring & Management
-
-### Cluster Monitoring
-
-1. **Metrics Collection**
-   - Prometheus and Grafana setup
-   - Custom metrics for applications
-   - Alerting rules for critical events
-
-2. **Logging**
-   - Centralized logging with Fluent Bit
-   - Log aggregation and analysis
-   - Retention policies
-
-3. **Health Checks**
-   - Node health monitoring
-   - Pod readiness and liveness probes
-   - Service endpoint monitoring
-
-### Argo CD Management
-
-1. **Application Deployment**
-   ```bash
-   # Create application from Git repository
-   kubectl apply -f - <<EOF
-   apiVersion: argoproj.io/v1alpha1
-   kind: Application
-   metadata:
-     name: my-app
-     namespace: argocd
-   spec:
-     project: default
-     source:
-       repoURL: https://github.com/your-org/your-repo
-       targetRevision: HEAD
-       path: k8s
-     destination:
-       server: https://kubernetes.default.svc
-       namespace: my-app
-     syncPolicy:
-       automated:
-         prune: true
-         selfHeal: true
-   EOF
-   ```
-
-2. **Sync Policies**
-   - Automated sync for development
-   - Manual sync for production
-   - Prune and self-heal options
-
-### Karpenter Management
-
-1. **Node Pool Configuration**
-   ```bash
-   # View node pools
-   kubectl get nodepools
-   
-   # Scale node pool
-   kubectl patch nodepool default --type='merge' -p='{"spec":{"limits":{"cpu":"2000"}}}'
-   ```
-
-2. **Provisioning Policies**
-   - Spot instance utilization
-   - Instance type selection
-   - Capacity type preferences
-
-## 🔒 Security Considerations
-
-### Network Security
-
-1. **Security Groups**
-   - Least-privilege access rules
-   - Pod-to-pod communication limits
-   - External access controls
-
-2. **Network Policies**
-   ```yaml
-   apiVersion: networking.k8s.io/v1
-   kind: NetworkPolicy
-   metadata:
-     name: default-deny
-     namespace: default
-   spec:
-     podSelector: {}
-     policyTypes:
-     - Ingress
-     - Egress
-   ```
-
-### Access Control
-
-1. **RBAC Configuration**
-   - Role-based access control
-   - Service account permissions
-   - Namespace isolation
-
-2. **IAM Integration**
-   - AWS IAM roles for service accounts
-   - Cross-account access management
-   - Temporary credentials
-
-### Secrets Management
-
-1. **Certificate Management**
-   - Automated certificate rotation
-   - Secure certificate storage
-   - Certificate validation
-
-2. **Application Secrets**
-   - Kubernetes secrets encryption
-   - External secret management
-   - Secret rotation policies
-
-## 💰 Cost Optimization
-
-### Karpenter Configuration
-
-1. **Spot Instance Utilization**
-   ```yaml
-   spec:
-     requirements:
-     - key: karpenter.sh/capacity-type
-       operator: In
-       values: ["spot"]
-   ```
-
-2. **Instance Type Optimization**
-   - Use appropriate instance families
-   - Right-size based on workload
-   - Monitor and adjust regularly
-
-### Resource Management
-
-1. **Node Consolidation**
-   ```yaml
-   spec:
-     disruption:
-       consolidationPolicy: WhenEmptyOrUnderutilized
-       consolidateAfter: 1m
-   ```
-
-2. **Resource Limits**
-   - Set appropriate CPU and memory limits
-   - Monitor resource utilization
-   - Scale down unused resources
-
-### Monitoring Costs
-
-1. **AWS Cost Explorer**
-   - Track EKS cluster costs
-   - Monitor EC2 instance usage
-   - Identify cost optimization opportunities
-
-2. **Karpenter Metrics**
-   - Monitor provisioning decisions
-   - Track spot instance usage
-   - Analyze cost savings
-
-## 🔧 Troubleshooting
+## 🔍 Troubleshooting
 
 ### Common Issues
 
-1. **Cluster Creation Failures**
+1. **OIDC Provider Issues**:
    ```bash
-  
-   # Verify IAM permissions
-   aws iam get-role --role-name eks-cluster-role
+   # Verify OIDC provider
+   aws eks describe-cluster --name <cluster-name> --region <region>
    ```
 
-2. **Node Group Issues**
+2. **IAM Role Permissions**:
+   ```bash
+   # Check role policies
+   aws iam get-role --role-name KarpenterControllerRole-<cluster-name>
+   ```
+
+3. **Node Group Issues**:
    ```bash
    # Check node group status
-   aws eks describe-nodegroup --cluster-name example-cluster --nodegroup-name example-cluster-primary
-   
-   # View node group logs
-   kubectl logs -n kube-system -l app=aws-node
+   aws eks describe-nodegroup --cluster-name <cluster-name> --nodegroup-name <nodegroup-name>
    ```
 
-3. **Argo CD Sync Issues**
-   ```bash
-   # Check application status
-   kubectl get applications -n argocd
-   
-   # View sync logs
-   kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
-   ```
-
-4. **Karpenter Provisioning Issues**
-   ```bash
-   # Check Karpenter logs
-   kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter
-   
-   # Verify node pool configuration
-   kubectl get nodepools -o yaml
-   ```
-
-### Debug Commands
-
+### Logs and Debugging
 ```bash
-# Cluster diagnostics
-kubectl cluster-info dump
+# Check EKS cluster logs
+aws logs describe-log-groups --log-group-name-prefix /aws/eks/<cluster-name>
 
-# Node diagnostics
-kubectl describe nodes
-
-# Pod diagnostics
-kubectl describe pods -n <namespace>
-
-# Service diagnostics
-kubectl get endpoints -A
-
-# Network diagnostics
-kubectl get networkpolicies -A
+# Check Karpenter logs
+kubectl logs -n karpenter deployment/karpenter
 ```
-
-## 🔄 Maintenance & Updates
-
-### EKS Version Upgrades
-
-1. **Control Plane Upgrade**
-   ```bash
-   # Update cluster version in variables.tf
-   cluster_version = "1.34"
-   
-   # Apply changes
-   terraform plan
-   terraform apply
-   ```
-
-2. **Node Group Updates**
-   ```bash
-   # Update node group AMI
-   # Modify eks.tf node group configuration
-   
-   # Apply rolling update
-   terraform apply
-   ```
-
-### Component Updates
-
-1. **Argo CD Updates**
-   ```bash
-   # Update Helm chart version
-   helm upgrade argocd argo/argo-cd -n argocd --version 7.8.27
-   ```
-
-2. **Karpenter Updates**
-   ```bash
-   # Update Karpenter version
-   kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.6.0/pkg/apis/crds/karpenter.sh_nodepools.yaml
-   ```
-
-3. **Cert Manager Updates**
-   ```bash
-   # Update Cert Manager
-   helm upgrade cert-manager jetstack/cert-manager -n cert-manager --version v1.18.0
-   ```
-
-### Backup and Recovery
-
-1. **State Backup**
-   ```bash
-   # Backup Terraform state
-   terraform state pull > terraform.tfstate.backup
-   
-   # Backup Kubernetes resources
-   kubectl get all --all-namespaces -o yaml > cluster-backup.yaml
-   ```
-
-2. **Disaster Recovery**
-   - Document recovery procedures
-   - Test recovery scenarios
-   - Maintain backup schedules
-
-### Performance Optimization
-
-1. **Cluster Optimization**
-   - Monitor resource utilization
-   - Optimize pod scheduling
-   - Tune network policies
-
-2. **Application Optimization**
-   - Right-size resource requests
-   - Implement horizontal pod autoscaling
-   - Optimize container images
-
----
 
 ## 📚 Additional Resources
 
-- [EKS Documentation](https://docs.aws.amazon.com/eks/)
-- [Argo CD Documentation](https://argo-cd.readthedocs.io/)
+- [EKS Best Practices](https://docs.aws.amazon.com/eks/latest/userguide/best-practices.html)
 - [Karpenter Documentation](https://karpenter.sh/)
-- [Cert Manager Documentation](https://cert-manager.io/docs/)
-- [Nginx Ingress Documentation](https://kubernetes.github.io/ingress-nginx/)
+- [Terraform EKS Module](https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/latest)
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+1. Follow the existing file structure
+2. Add appropriate comments and documentation
+3. Test changes in a non-production environment
+4. Update this README for any new features
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-**Note**: This documentation is maintained by the DevOps team. For questions or issues, please contact the team or create an issue in the repository.
