@@ -1,0 +1,88 @@
+create:
+  create:
+    args:
+    - create
+    - --host=ingress-nginx-controller-admission,ingress-nginx-controller-admission.$(POD_NAMESPACE).svc
+    - --namespace=$(POD_NAMESPACE)
+    - --secret-name=ingress-nginx-admission
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+    image:
+      repository: registry.k8s.io/ingress-nginx/kube-webhook-certgen
+      tag: v1.5.2@sha256:e8825994b7a2c7497375a9b945f386506ca6a3eda80b89b74ef2db743f66a5ea
+    imagePullPolicy: IfNotPresent
+  nodeSelector:
+    kubernetes.io/os: linux
+ingressNginx:
+  serviceAccount:
+    annotations: {}
+ingressNginxAdmission:
+  serviceAccount:
+    annotations: {}
+ingressNginxController:
+  allowSnippetAnnotations: "true"
+  controller:
+    args:
+    - /nginx-ingress-controller
+    - --publish-service=$(POD_NAMESPACE)/ingress-nginx-controller
+    - --election-id=ingress-nginx-leader
+    - --controller-class=k8s.io/ingress-nginx
+    - --ingress-class=nginx
+    - --configmap=$(POD_NAMESPACE)/ingress-nginx-controller
+    - --validating-webhook=:8443
+    - --validating-webhook-certificate=/usr/local/certificates/cert
+    - --validating-webhook-key=/usr/local/certificates/key
+    containerSecurityContext:
+      allowPrivilegeEscalation: true
+      capabilities:
+        add:
+        - NET_BIND_SERVICE
+        drop:
+        - ALL
+      runAsUser: 101
+    env:
+      ldPreload: /usr/local/lib/libmimalloc.so
+    image:
+      repository: registry.k8s.io/ingress-nginx/controller
+      tag: v1.12.1@sha256:d2fbc4ec70d8aa2050dd91a91506e998765e86c96f32cffb56c503c9c34eed5b
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 90Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: https
+  type: LoadBalancer
+ingressNginxControllerAdmission:
+  ports:
+  - name: https-webhook
+    port: 443
+    targetPort: webhook
+  type: ClusterIP
+kubernetesClusterDomain: cluster.local
+patch:
+  nodeSelector:
+    kubernetes.io/os: linux
+  patch:
+    args:
+    - patch
+    - --webhook-name=ingress-nginx-admission
+    - --namespace=$(POD_NAMESPACE)
+    - --patch-mutating=false
+    - --secret-name=ingress-nginx-admission
+    - --patch-failure-policy=Fail
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+    image:
+      repository: registry.k8s.io/ingress-nginx/kube-webhook-certgen
+      tag: v1.5.2@sha256:e8825994b7a2c7497375a9b945f386506ca6a3eda80b89b74ef2db743f66a5ea
+    imagePullPolicy: IfNotPresent
