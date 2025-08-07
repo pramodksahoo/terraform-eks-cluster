@@ -32,7 +32,8 @@ Terraform-EKS/
 ├── iam.tf                  # IAM roles and policies
 ├── optional-features.tf    # Optional enhancements (disabled by default)
 ├── karpenter/              # Karpenter manifests
-├── n-ingres/               # Custom nginx ingress chart
+├── n-ingres/               # Custom nginx ingress Controller
+├── alb-ingres/             # AWS ALB ingress controller
 ├── argocd.yaml            # ArgoCD configuration
 ├── letsencrypt-issuer.yaml # Let's Encrypt certificate issuer
 └── README.md              # This file
@@ -432,8 +433,8 @@ graph TB
 
 4. **Deploy Infrastructure**:
    ```bash
-terraform apply
-```
+   terraform apply
+   ```
 
 ## 📋 Core Components
 
