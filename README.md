@@ -3,7 +3,6 @@
 ## 📋 Table of Contents
 
 - [Project Overview](#project-overview)
-- [Project Structure](#project-structure)
 - [Architecture](#architecture)
 - [Infrastructure Components](#infrastructure-components)
 - [Prerequisites](#prerequisites)
@@ -44,6 +43,7 @@ Terraform-EKS/
 - **Amazon EKS Cluster**: Kubernetes 1.33 with managed node groups
 - **Argo CD**: GitOps continuous delivery for application deployment
 - **Nginx Ingress Controller**: Load balancing and traffic routing
+- **AWS Load Balancer Controller**: ALB/NLB management for ingress resources
 - **Karpenter**: Intelligent node provisioning and auto-scaling
 - **Cert Manager**: Automated SSL certificate management with Let's Encrypt
 - **Multi-AZ Deployment**: High availability across availability zones
@@ -357,7 +357,22 @@ graph TB
 - Rate limiting and security headers
 - Metrics and monitoring
 
-### 4. Karpenter (Auto-scaling)
+### 4. AWS Load Balancer Controller
+
+**Configuration:**
+- **Version**: v2.8.1
+- **Type**: Deployment with service account
+- **IAM Role**: OIDC-based authentication
+- **Target Types**: IP and Instance mode support
+
+**Features:**
+- Automatic ALB/NLB provisioning for ingress resources
+- Target group management
+- SSL certificate integration
+- Health check configuration
+- Cost optimization with shared load balancers
+
+### 5. Karpenter (Auto-scaling)
 
 **Configuration:**
 - **Version**: 1.5.0
@@ -373,7 +388,7 @@ graph TB
 - Node lifecycle management
 - Multi-architecture support
 
-### 5. Cert Manager
+### 6. Cert Manager
 
 **Configuration:**
 - **Version**: v1.17.2
@@ -417,8 +432,8 @@ graph TB
 
 4. **Deploy Infrastructure**:
    ```bash
-   terraform apply
-   ```
+terraform apply
+```
 
 ## 📋 Core Components
 
@@ -448,8 +463,27 @@ graph TB
 | `cluster_name` | EKS cluster name | `example-cluster` |
 | `cluster_version` | Kubernetes version | `1.33` |
 | `region` | AWS region | `eu-central-1` |
+| `aws_profile` | AWS profile for authentication | `example-s3-terraform` |
 | `vpc_id` | VPC ID for the cluster | `vpc-0746459fe6c860319` |
 | `subnet_ids` | Private subnet IDs | `["subnet-0d31c021f8ae604c7", ...]` |
+| `public_subnet_ids` | Public subnet IDs for load balancers | `["subnet-0ef75f832c29112bf", ...]` |
+| `primary_nodegroup_name` | Primary node group name | `dev-cluster-primary` |
+| `primary_min_size` | Primary node group minimum size | `3` |
+| `primary_max_size` | Primary node group maximum size | `6` |
+| `primary_desired_size` | Primary node group desired size | `3` |
+| `node_instance_type` | Instance type for primary nodes | `t3a.medium` |
+| `upgrade_nodegroup_name` | Upgrade node group name | `dev-cluster-upgrade` |
+| `upgrade_min_size` | Upgrade node group minimum size | `0` |
+| `upgrade_max_size` | Upgrade node group maximum size | `6` |
+| `upgrade_desired_size` | Upgrade node group desired size | `0` |
+| `upgrade_instance_type` | Instance type for upgrade nodes | `t3a.medium` |
+| `upgrade_version` | Kubernetes version for upgrade node group | `1.33` |
+| `enable_upgrade_nodegroup` | Enable upgrade node group | `false` |
+| `karpenter_version` | Karpenter version | `1.5.0` |
+| `karpenter_cpu_limits` | Karpenter CPU limits | `1000` |
+| `karpenter_instance_families` | Karpenter instance families | `["t3a", "t2", "m"]` |
+| `karpenter_capacity_types` | Karpenter capacity types | `["spot", "on-demand"]` |
+| `karpenter_ami_family` | Karpenter AMI family | `AL2023` |
 | `enable_iam_roles` | Enable IAM role creation | `true` |
 
 ### IAM Role Policies
@@ -476,7 +510,7 @@ The `optional-features.tf` file contains additional components that can be enabl
 ### Monitoring Stack
 - Prometheus + Grafana
 - Fluent Bit for logging
-- AWS Load Balancer Controller
+- AWS Load Balancer Controller (optional feature)
 
 ### Enablement
 To enable any optional feature:
@@ -507,9 +541,140 @@ To enable any optional feature:
 ## 🛠️ Maintenance
 
 ### Upgrading Kubernetes Version
-1. Update `cluster_version` variable
-2. Update `upgrade_version` variable
-3. Run `terraform plan` and `terraform apply`
+
+The cluster includes an automated upgrade script (`upgrade-helper.sh`) that follows AWS best practices for zero-downtime EKS upgrades.
+
+#### Prerequisites for Upgrade
+
+1. **Update Script Configuration**:
+   ```bash
+   # Edit the upgrade-helper.sh script
+   vim upgrade-helper.sh
+   
+   # Update these variables at the top of the script:
+   CLUSTER_NAME="your-cluster-name"
+   REGION="eu-central-1"
+   AWS_PROFILE="example-s3-terraform"
+   CURRENT_VERSION="1.32"  # Your current version
+   TARGET_VERSION="1.33"   # Your target version
+   ```
+
+2. **Update Terraform Variables** (if using Terraform for upgrades):
+   ```bash
+   # Update variables.tf or terraform.tfvars
+   cluster_version = "1.32"
+   upgrade_version = "1.33"
+   ```
+
+3. **Verify Cluster Health**:
+   ```bash
+   # Check current cluster status
+   kubectl get nodes
+   kubectl get pods --all-namespaces
+   
+   # Verify cluster version
+   kubectl version --short
+   ```
+
+#### Running the Upgrade
+
+1. **Create Backup** (Recommended):
+   ```bash
+   ./upgrade-helper.sh backup
+   ```
+
+2. **Check Prerequisites**:
+   ```bash
+   ./upgrade-helper.sh status
+   ```
+
+3. **Run Complete Upgrade**:
+   ```bash
+   ./upgrade-helper.sh upgrade
+   ```
+
+#### Manual Upgrade Steps (Alternative)
+
+If you prefer manual control:
+
+```bash
+# Step 1: Create upgrade node group
+terraform apply -var-file="upgrade-phase1.tfvars"
+
+# Step 2: Scale up upgrade node group
+terraform apply -var-file="upgrade-phase2.tfvars"
+
+# Step 3: Wait for nodes and migrate workloads
+kubectl wait --for=condition=Ready nodes --all --timeout=900s
+
+# Step 4: Upgrade control plane
+terraform apply -var-file="upgrade-control-plane.tfvars"
+
+# Step 5: Update primary node group
+terraform apply -var-file="upgrade-final.tfvars"
+
+# Step 6: Verify upgrade
+kubectl version --short
+kubectl get nodes -o custom-columns=NAME:.metadata.name,VERSION:.status.nodeInfo.kubeletVersion
+```
+
+#### Upgrade Process Overview
+
+The upgrade script performs these steps automatically:
+
+1. **Prerequisites Check**: Verifies AWS CLI, kubectl, and cluster accessibility
+2. **Backup Creation**: Creates comprehensive backup of cluster state
+3. **Upgrade Node Group Creation**: Creates temporary node group with current version
+4. **Node Migration**: Moves workloads to new nodes
+5. **Control Plane Upgrade**: Upgrades EKS control plane to target version
+6. **Node Group Updates**: AWS automatically upgrades node groups to match control plane
+7. **Verification**: Ensures all components are running correctly
+8. **Cleanup**: Removes temporary upgrade node group
+
+#### Monitoring During Upgrade
+
+```bash
+# Monitor node status
+kubectl get nodes -o wide
+
+# Monitor pod status
+kubectl get pods --all-namespaces
+
+# Monitor cluster events
+kubectl get events --all-namespaces --sort-by='.lastTimestamp'
+
+# Monitor node group status
+aws eks describe-nodegroup --cluster-name <cluster-name> --nodegroup-name <nodegroup-name>
+```
+
+#### Rollback Process
+
+If the upgrade fails:
+
+```bash
+# Use the backup created earlier
+./upgrade-helper.sh rollback
+
+# Or manually restore from backup
+terraform state push backup_<timestamp>/terraform-state.tfstate
+kubectl apply -f backup_<timestamp>/cluster-resources.yaml
+```
+
+#### Post-Upgrade Verification
+
+```bash
+# Verify cluster version
+kubectl version --short
+
+# Verify node versions
+kubectl get nodes -o custom-columns=NAME:.metadata.name,VERSION:.status.nodeInfo.kubeletVersion
+
+# Verify all pods are running
+kubectl get pods --all-namespaces
+
+# Test application functionality
+kubectl get svc --all-namespaces
+```
 
 ### Adding New IAM Roles
 1. Add role definition to `iam.tf`
@@ -555,7 +720,9 @@ kubectl logs -n karpenter deployment/karpenter
 
 - [EKS Best Practices](https://docs.aws.amazon.com/eks/latest/userguide/best-practices.html)
 - [Karpenter Documentation](https://karpenter.sh/)
+- [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/)
 - [Terraform EKS Module](https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/latest)
+- [EKS Upgrade Best Practices](https://docs.aws.amazon.com/eks/latest/userguide/update-cluster.html)
 
 ## 🤝 Contributing
 
