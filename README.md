@@ -1,4 +1,4 @@
-# EKS Cluster with Argo CD, Nginx Ingress, Karpenter, and Cert Manager
+# EKS Cluster with Argo CD, Nginx Ingress, ALB Ingress, Karpenter, and Cert Manager
 
 ## 📋 Table of Contents
 
