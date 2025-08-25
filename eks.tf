@@ -11,6 +11,7 @@ module "eks" {
   subnet_ids                      = var.subnet_ids
   cluster_endpoint_private_access = true
   cluster_endpoint_public_access  = true
+  cluster_endpoint_public_access_cidrs = var.cluster_public_cidrs
   vpc_id                          = var.vpc_id
   # Enable cluster creator admin permissions
   enable_cluster_creator_admin_permissions = true
@@ -20,10 +21,12 @@ module "eks" {
     "karpenter.sh/discovery" = var.cluster_name
   }
 
-  # Disable logging and KMS
-  cluster_enabled_log_types = []
-  create_kms_key            = false
-  cluster_encryption_config = {}
+  # Enable control plane logging and KMS envelope encryption
+  cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  create_kms_key            = true
+  cluster_encryption_config = {
+    resources = ["secrets"]
+  }
 
   # Security group settings
   node_security_group_enable_recommended_rules = true
