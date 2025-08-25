@@ -32,9 +32,15 @@ variable "cluster_name" {
 }
 
 variable "cluster_version" {
-  default     = "1.32"
+  default     = "1.33"
   type        = string
   description = "Kubernetes cluster version"
+}
+
+variable "cluster_public_cidrs" {
+  description = "Allowed CIDRs for public API endpoint access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 #### Primary Node Group Configuration #####
@@ -102,7 +108,7 @@ variable "upgrade_instance_type" {
 variable "upgrade_version" {
   description = "Kubernetes version for upgrade node group"
   type        = string
-  default     = "1.32"
+  default     = "1.33"
 }
 
 variable "enable_upgrade_nodegroup" {

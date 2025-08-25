@@ -11,6 +11,7 @@ module "eks" {
   subnet_ids                      = var.subnet_ids
   cluster_endpoint_private_access = true
   cluster_endpoint_public_access  = true
+  cluster_endpoint_public_access_cidrs = var.cluster_public_cidrs
   vpc_id                          = var.vpc_id
   # Enable cluster creator admin permissions
   enable_cluster_creator_admin_permissions = true
@@ -20,10 +21,12 @@ module "eks" {
     "karpenter.sh/discovery" = var.cluster_name
   }
 
-  # Disable logging and KMS
-  cluster_enabled_log_types = []
-  create_kms_key            = false
-  cluster_encryption_config = {}
+  # Enable control plane logging and KMS envelope encryption
+  cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  create_kms_key            = true
+  cluster_encryption_config = {
+    resources = ["secrets"]
+  }
 
   # Security group settings
   node_security_group_enable_recommended_rules = true
@@ -79,12 +82,10 @@ module "eks" {
         }
 
         iam_role_additional_policies = {
-          AmazonS3FullAccess       = "arn:aws:iam::aws:policy/AmazonS3FullAccess"                    # grant full access to all s3 buckets to all cluster nodes
-          AmazonEBSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy" # needed for persistent volumes
-          AmazonEKSCNIPolicy       = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-          AmazonEC2ContainerRegistryReadOnly  = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-          AmazonEFSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
-          AWSLoadBalancerControllerIAMPolicy = "arn:aws:iam::176523951730:policy/AWSLoadBalancerControllerIAMPolicy"
+          AmazonEBSCSIDriverPolicy          = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+          AmazonEKSCNIPolicy                = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          AmazonEC2ContainerRegistryReadOnly= "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          AmazonEFSCSIDriverPolicy          = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
         }
       }
     },
@@ -111,12 +112,10 @@ module "eks" {
         }
 
         iam_role_additional_policies = {
-          AmazonS3FullAccess       = "arn:aws:iam::aws:policy/AmazonS3FullAccess"                    # grant full access to all s3 buckets to all cluster nodes
-          AmazonEBSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy" # needed for persistent volumes
-          AmazonEKSCNIPolicy       = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-          AmazonEC2ContainerRegistryReadOnly  = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-          AmazonEFSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
-          AWSLoadBalancerControllerIAMPolicy = "arn:aws:iam::176523951730:policy/AWSLoadBalancerControllerIAMPolicy"
+          AmazonEBSCSIDriverPolicy          = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+          AmazonEKSCNIPolicy                = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          AmazonEC2ContainerRegistryReadOnly= "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          AmazonEFSCSIDriverPolicy          = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
         }
       }
     } : {}
@@ -145,7 +144,7 @@ module "eks" {
       most_recent                 = true
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
-      service_account_role_arn    = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/eks-dev-ebs-csi"
+      service_account_role_arn    = module.ebs_csi_irsa_role.iam_role_arn
     }
 
     aws-efs-csi-driver = {
@@ -276,53 +275,54 @@ resource "helm_release" "argocd" {
   values           = [file("argocd.yaml")]
 }
 
-##### ALB INGRESS ########
-# create Application Load Balancer controller service account with correct role ARN
-resource "kubectl_manifest" "alb_ingress_controller_sa" {
-  yaml_body = yamlencode({
-    apiVersion = "v1"
-    kind       = "ServiceAccount"
-    metadata = {
-      name      = "aws-load-balancer-controller"
-      namespace = "kube-system"
-      labels = {
-        "app.kubernetes.io/component" = "controller"
-        "app.kubernetes.io/name" = "aws-load-balancer-controller"
-      }
-      annotations = {
-        "eks.amazonaws.com/role-arn" = module.eks.eks_managed_node_groups["dev-cluster-primary"].iam_role_arn
-      }
+##### ALB INGRESS (via Helm with IRSA) ########
+
+module "alb_controller_irsa" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "5.17.0"
+
+  role_name                         = "eks-${var.cluster_name}-alb-controller"
+  attach_load_balancer_controller_policy = true
+
+  oidc_providers = {
+    ex = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
     }
-  })
-
-  depends_on = [module.eks]
-}
-
-# Apply ALB ingress resources - handle multi-document YAML files properly
-locals {
-  alb_ingress_manifests = flatten([
-    for filename in local.alb_ingress_yaml_files : [
-      for i, doc in split("---", file("${local.alb_ingress_manifest_full_path}/${filename}")) : {
-        filename = filename
-        index    = i
-        content  = trimspace(doc)
-      }
-      if trimspace(doc) != ""
-    ]
-  ])
-}
-
-resource "kubectl_manifest" "alb_ingress_resources" {
-  for_each = {
-    for manifest in local.alb_ingress_manifests :
-    "${manifest.filename}-${manifest.index}" => yamldecode(manifest.content)
   }
+}
 
-  yaml_body = yamlencode(each.value)
+resource "helm_release" "aws_load_balancer_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = "kube-system"
 
   depends_on = [
-    kubectl_manifest.alb_ingress_controller_sa,
+    module.eks,
+    aws_ec2_tag.public_subnet_elb_role,
+    aws_ec2_tag.private_subnet_internal_elb_role
   ]
+
+  set {
+    name  = "clusterName"
+    value = var.cluster_name
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.alb_controller_irsa.iam_role_arn
+  }
 }
 
 ##### KARPENTER ########
@@ -401,11 +401,9 @@ resource "kubectl_manifest" "ec2_node_class" {
             volumeSize: 40Gi     # Must be >= snapshot size (30GB)
             volumeType: gp3
             encrypted: true
-      amiSelectorTerms:
-        - id: ami-0aa7cb83bdde7464f # Latest AL2023 AMI in eu-central-1 for 1.33 k8s version
       subnetSelectorTerms:
         - tags:
-            karpenter.sh/discovery/example: ${var.cluster_name}
+            karpenter.sh/discovery: ${var.cluster_name}
       securityGroupSelectorTerms:
         - tags:
             karpenter.sh/discovery: ${var.cluster_name}
@@ -442,7 +440,7 @@ resource "kubectl_manifest" "node_pool" {
               values: ["spot"]
             - key: karpenter.k8s.aws/instance-category
               operator: In
-              values: ["t3a", "t",]
+              values: ["t"]
             - key: karpenter.k8s.aws/instance-generation
               operator: Gt
               values: ["2"]
@@ -742,220 +740,4 @@ resource "kubectl_manifest" "karpenter_deployment_fix" {
 # This needs to be done after the EKS cluster is created because OIDC provider info is only available then
 
 # Create a null resource to trigger the IAM role trust policy update after EKS cluster is ready
-resource "null_resource" "update_nodegroup_trust_policies" {
-  triggers = {
-    cluster_id = module.eks.cluster_id
-    oidc_provider_arn = module.eks.oidc_provider_arn
-    # Add a timestamp to force re-run if needed
-    timestamp = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -e  # Exit on any error
-      
-      echo "Starting IAM role trust policy update..."
-      
-      # Cross-platform timeout function
-      timeout_cmd() {
-        local duration=$1
-        shift
-        
-        echo "Using timeout function with duration: $duration seconds"
-        
-        # Check if gtimeout is available (macOS with Homebrew)
-        if command -v gtimeout >/dev/null 2>&1; then
-          echo "Using gtimeout command"
-          gtimeout $duration "$@"
-        # Check if timeout is available (Linux)
-        elif command -v timeout >/dev/null 2>&1; then
-          echo "Using timeout command"
-          timeout $duration "$@"
-        else
-          echo "Using fallback timeout implementation"
-          # Fallback: run command in background and kill after timeout
-          local cmd_pid
-          "$@" &
-          cmd_pid=$!
-          
-          # Wait for either the command to complete or timeout to expire
-          local elapsed=0
-          while [ $elapsed -lt $duration ]; do
-            if ! kill -0 $cmd_pid 2>/dev/null; then
-              # Command completed, wait for exit status
-              wait $cmd_pid
-              return $?
-            fi
-            sleep 5
-            elapsed=$((elapsed + 5))
-            echo "Timeout check: $elapsed/$duration seconds elapsed"
-          done
-          
-          # Timeout expired, kill the process
-          echo "Timeout expired, killing process $cmd_pid"
-          kill $cmd_pid 2>/dev/null
-          return 1
-        fi
-      }
-      
-      # Check cluster status first
-      echo "Checking current cluster status..."
-      CLUSTER_STATUS=$(aws eks describe-cluster --name ${var.cluster_name} --region ${var.region} --profile ${var.aws_profile} --query 'cluster.status' --output text 2>/dev/null || echo "UNKNOWN")
-      echo "Current cluster status: $CLUSTER_STATUS"
-      
-      # If cluster is already active, skip the wait
-      if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
-        echo "Cluster is already ACTIVE, skipping wait..."
-      else
-        # Wait for EKS cluster to be ready with timeout
-        echo "Waiting for EKS cluster to be active..."
-        if ! timeout_cmd 300 aws eks wait cluster-active --name ${var.cluster_name} --region ${var.region} --profile ${var.aws_profile}; then
-          echo "ERROR: EKS cluster is not active after 5 minutes"
-          echo "Current cluster status: $(aws eks describe-cluster --name ${var.cluster_name} --region ${var.region} --profile ${var.aws_profile} --query 'cluster.status' --output text 2>/dev/null || echo 'UNKNOWN')"
-          exit 1
-        fi
-      fi
-      
-      echo "EKS cluster is active"
-      
-      # Wait a bit more for node groups to be ready
-      sleep 30
-      
-      # List all node groups and get their IAM roles
-      echo "Listing node groups..."
-      NODE_GROUPS=$(aws eks list-nodegroups --cluster-name ${var.cluster_name} --region ${var.region} --profile ${var.aws_profile} --query 'nodegroups[]' --output text)
-      
-      if [ -z "$NODE_GROUPS" ]; then
-        echo "ERROR: No node groups found"
-        exit 1
-      fi
-      
-      echo "Found node groups: $NODE_GROUPS"
-      
-      # Create a temporary file for the policy document
-      POLICY_FILE=$(mktemp)
-      
-      # Update trust policy for each node group
-      for NODE_GROUP in $NODE_GROUPS; do
-        echo "Processing node group: $NODE_GROUP"
-        
-        # Get node group IAM role ARN with retry
-        ROLE_ARN=""
-        for i in {1..5}; do
-          echo "Attempt $i to get role ARN for node group: $NODE_GROUP"
-          ROLE_ARN=$(aws eks describe-nodegroup --cluster-name ${var.cluster_name} --nodegroup-name $NODE_GROUP --region ${var.region} --profile ${var.aws_profile} --query 'nodegroup.nodeRole' --output text 2>/dev/null)
-          
-          if [ -n "$ROLE_ARN" ]; then
-            echo "Successfully got role ARN: $ROLE_ARN"
-            break
-          fi
-          
-          echo "Failed to get role ARN, retrying in 10 seconds..."
-          sleep 10
-        done
-        
-        if [ -z "$ROLE_ARN" ]; then
-          echo "ERROR: Could not get role ARN for node group: $NODE_GROUP after 5 attempts"
-          exit 1
-        fi
-        
-        # Extract role name from ARN (last part after the last slash)
-        ROLE_NAME=$(echo $ROLE_ARN | rev | cut -d'/' -f1 | rev)
-        
-        echo "Updating trust policy for role: $ROLE_NAME"
-        
-        # Create the policy document
-        cat > $POLICY_FILE << 'EOF'
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "EKSNodeAssumeRole",
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ec2.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    },
-    {
-      "Sid": "ALBControllerAssumeRole",
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "OIDC_PROVIDER_ARN_PLACEHOLDER"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "OIDC_PROVIDER_ARN_PLACEHOLDER:aud": "sts.amazonaws.com",
-          "OIDC_PROVIDER_ARN_PLACEHOLDER:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
-        }
-      }
-    },
-    {
-      "Sid": "ECRServiceAccountAssumeRole",
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "OIDC_PROVIDER_ARN_PLACEHOLDER"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "OIDC_PROVIDER_ARN_PLACEHOLDER:sub": "system:serviceaccount:argocd:argocd-image-updater"
-        }
-      }
-    }
-  ]
-}
-EOF
-        
-        # Replace placeholder with actual OIDC provider ARN
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-          # macOS version of sed
-          sed -i '' "s|OIDC_PROVIDER_ARN_PLACEHOLDER|${module.eks.oidc_provider_arn}|g" $POLICY_FILE
-        else
-          # Linux version of sed
-          sed -i "s|OIDC_PROVIDER_ARN_PLACEHOLDER|${module.eks.oidc_provider_arn}|g" $POLICY_FILE
-        fi
-        
-        # Update IAM role trust policy with retry
-        for i in {1..3}; do
-          echo "Attempt $i to update trust policy for role: $ROLE_NAME"
-          
-          if aws iam update-assume-role-policy --role-name $ROLE_NAME --policy-document file://$POLICY_FILE --region ${var.region} --profile ${var.aws_profile} 2>/dev/null; then
-            echo "Successfully updated trust policy for role: $ROLE_NAME"
-            break
-          else
-            echo "Failed to update trust policy, retrying in 5 seconds..."
-            sleep 5
-          fi
-        done
-        
-        # Verify the update was successful
-        echo "Verifying trust policy update..."
-        CURRENT_POLICY=$(aws iam get-role --role-name $ROLE_NAME --profile ${var.aws_profile} --query 'Role.AssumeRolePolicyDocument' --output json 2>/dev/null)
-        
-        if echo "$CURRENT_POLICY" | grep -q "ALBControllerAssumeRole"; then
-          echo "✅ Trust policy verification successful for role: $ROLE_NAME"
-        else
-          echo "❌ Trust policy verification failed for role: $ROLE_NAME"
-          echo "Current policy: $CURRENT_POLICY"
-          exit 1
-        fi
-      done
-      
-      # Clean up
-      rm -f $POLICY_FILE
-      
-      echo "🎉 All IAM role trust policies updated successfully!"
-    EOT
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      echo "Cleaning up IAM role trust policies..."
-    EOT
-  }
-
-  depends_on = [module.eks]
-}
+// Removed null_resource that mutated nodegroup trust policies; using IRSA per-controller instead
