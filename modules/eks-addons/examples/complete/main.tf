@@ -29,12 +29,14 @@ terraform {
 }
 
 variable "cluster_name" {
-  type = string
+  description = "Name of the existing EKS cluster to install the add-ons into."
+  type        = string
 }
 
 variable "region" {
-  type    = string
-  default = "eu-central-1"
+  description = "AWS region the cluster runs in."
+  type        = string
+  default     = "eu-central-1"
 }
 
 variable "karpenter_queue_name" {
@@ -144,9 +146,11 @@ module "addons" {
 }
 
 output "default_storage_class_name" {
-  value = module.addons.default_storage_class_name
+  description = "Name of the gp3 StorageClass marked as cluster default."
+  value       = module.addons.default_storage_class_name
 }
 
 output "default_node_pool_name" {
-  value = module.addons.default_node_pool_name
+  description = "Name of the Karpenter NodePool that unscheduled pods land on by default."
+  value       = module.addons.default_node_pool_name
 }

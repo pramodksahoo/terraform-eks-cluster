@@ -12,6 +12,10 @@ terraform {
   required_version = ">= 1.10.0"
 
   required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.59.0, < 7.0.0"
+    }
     helm = {
       source  = "hashicorp/helm"
       version = ">= 3.3.0, < 4.0.0"
@@ -28,16 +32,19 @@ terraform {
 }
 
 variable "cluster_name" {
-  type = string
+  description = "Name of the existing EKS cluster to install the gateway stack into."
+  type        = string
 }
 
 variable "region" {
-  type    = string
-  default = "eu-central-1"
+  description = "AWS region the cluster runs in."
+  type        = string
+  default     = "eu-central-1"
 }
 
 variable "vpc_id" {
-  type = string
+  description = "VPC the cluster runs in. The load balancer controller needs it for subnet discovery."
+  type        = string
 }
 
 variable "certificate_arn" {
@@ -149,5 +156,6 @@ output "alb_gateway_class_name" {
 }
 
 output "nlb_gateway_class_name" {
-  value = module.gateway.nlb_gateway_class_name
+  description = "Put this in spec.gatewayClassName on a Gateway that needs an L4 NLB."
+  value       = module.gateway.nlb_gateway_class_name
 }

@@ -97,5 +97,6 @@ output "addons_input" {
 }
 
 output "kubeconfig_command" {
-  value = module.eks.kubeconfig_command
+  description = "AWS CLI command that writes a kubeconfig entry for this cluster."
+  value       = module.eks.kubeconfig_command
 }

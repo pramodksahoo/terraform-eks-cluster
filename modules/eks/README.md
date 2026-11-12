@@ -552,6 +552,7 @@ source = "git::https://github.com/pramodksahoo/terraform-eks-cluster.git//module
 | <a name="output_node_security_group_id"></a> [node\_security\_group\_id](#output\_node\_security\_group\_id) | ID of the shared node security group. Carries the karpenter.sh/discovery tag. |
 | <a name="output_oidc_provider_arn"></a> [oidc\_provider\_arn](#output\_oidc\_provider\_arn) | ARN of the IAM OIDC provider, or null when enable\_irsa is false. |
 | <a name="output_pod_identity_role_arns"></a> [pod\_identity\_role\_arns](#output\_pod\_identity\_role\_arns) | Map of platform add-on name to the IAM role ARN associated with its service account. |
+| <a name="output_public_subnet_ids"></a> [public\_subnet\_ids](#output\_public\_subnet\_ids) | Public subnet IDs handed to this module. Passed straight through so the gateway module can place internet-facing load balancers without re-reading the networking state. |
 | <a name="output_secrets_kms_key_arn"></a> [secrets\_kms\_key\_arn](#output\_secrets\_kms\_key\_arn) | ARN of the KMS key encrypting Kubernetes Secrets, or null when encryption is disabled. |
 | <a name="output_self_managed_node_group_names"></a> [self\_managed\_node\_group\_names](#output\_self\_managed\_node\_group\_names) | Names of the self-managed node groups. |
 | <a name="output_self_managed_node_groups"></a> [self\_managed\_node\_groups](#output\_self\_managed\_node\_groups) | Attributes of the self-managed node groups (ASGs), keyed by name. |

@@ -111,8 +111,9 @@ windows.
 ## Scanning
 
 ```bash
-trivy config .
+trivy config --config trivy.yaml .
 tflint --recursive
 ```
 
-Both run in CI on every pull request.
+Both run in CI on every pull request. `trivy.yaml` excludes downloaded
+upstream modules so the gate only reports findings this repository can fix.

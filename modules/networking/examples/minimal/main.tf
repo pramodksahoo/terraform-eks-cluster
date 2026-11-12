@@ -52,9 +52,11 @@ module "networking" {
 }
 
 output "vpc_id" {
-  value = module.networking.vpc_id
+  description = "ID of the VPC created by this example."
+  value       = module.networking.vpc_id
 }
 
 output "private_subnet_ids" {
-  value = module.networking.private_subnet_ids
+  description = "Private subnet IDs to hand to the eks module as subnet_ids."
+  value       = module.networking.private_subnet_ids
 }

@@ -79,7 +79,8 @@ output "eks_network_config" {
 }
 
 output "vpc_id" {
-  value = module.networking.vpc_id
+  description = "ID of the VPC created by this example."
+  value       = module.networking.vpc_id
 }
 
 output "nat_public_ips" {

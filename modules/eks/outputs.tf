@@ -86,6 +86,15 @@ output "node_security_group_id" {
 }
 
 ###############################################################################
+# Networking passthrough
+###############################################################################
+
+output "public_subnet_ids" {
+  description = "Public subnet IDs handed to this module. Passed straight through so the gateway module can place internet-facing load balancers without re-reading the networking state."
+  value       = var.public_subnet_ids
+}
+
+###############################################################################
 # Node groups
 ###############################################################################
 

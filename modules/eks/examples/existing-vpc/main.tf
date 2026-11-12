@@ -85,9 +85,11 @@ module "eks" {
 }
 
 output "cluster_name" {
-  value = module.eks.cluster_name
+  description = "Name of the cluster created on top of the pre-existing VPC."
+  value       = module.eks.cluster_name
 }
 
 output "kubeconfig_command" {
-  value = module.eks.kubeconfig_command
+  description = "AWS CLI command that writes a kubeconfig entry for this cluster."
+  value       = module.eks.kubeconfig_command
 }

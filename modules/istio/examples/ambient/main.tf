@@ -10,6 +10,10 @@ terraform {
   required_version = ">= 1.10.0"
 
   required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.59.0, < 7.0.0"
+    }
     helm = {
       source  = "hashicorp/helm"
       version = ">= 3.3.0, < 4.0.0"
@@ -26,12 +30,14 @@ terraform {
 }
 
 variable "cluster_name" {
-  type = string
+  description = "Name of the existing EKS cluster to install the mesh into."
+  type        = string
 }
 
 variable "region" {
-  type    = string
-  default = "eu-central-1"
+  description = "AWS region the cluster runs in."
+  type        = string
+  default     = "eu-central-1"
 }
 
 data "aws_eks_cluster" "this" {

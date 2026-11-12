@@ -160,7 +160,7 @@ There is no automated test suite. Validation is:
 
 1. `terraform validate` on every module, layer and example (CI)
 2. `tflint` with the AWS ruleset (CI)
-3. `trivy config` for misconfiguration scanning (CI)
+3. `trivy config --config trivy.yaml` for misconfiguration scanning (CI)
 4. A real `terraform plan` against a dev account for anything non-trivial
 
 Add an example under `modules/<name>/examples/` for any new capability. The

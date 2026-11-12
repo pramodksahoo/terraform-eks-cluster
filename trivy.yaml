@@ -1,0 +1,13 @@
+# Trivy configuration for the misconfiguration (IaC) scan run by
+# .github/workflows/validate.yml.
+#
+# exclude-downloaded-modules keeps the gate pointed at code this repository
+# owns. Trivy resolves and scans remote modules by default, which means the
+# upstream terraform-aws-modules/eks source gets reported against us - for
+# example AWS-0104 on the node security group's egress rule. Nodes genuinely
+# need egress to reach ECR, the EKS API and STS, that rule is not ours to
+# change, and a finding nobody can action only teaches people to ignore the
+# job. Upstream module versions are pinned and reviewed on upgrade instead.
+misconfiguration:
+  terraform:
+    exclude-downloaded-modules: true
