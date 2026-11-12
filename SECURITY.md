@@ -113,7 +113,14 @@ windows.
 ```bash
 trivy config --config trivy.yaml .
 tflint --recursive
+gitleaks git . --log-opts="--full-history --all"
 ```
 
-Both run in CI on every pull request. `trivy.yaml` excludes downloaded
+All three run in CI. `trivy.yaml` excludes downloaded
 upstream modules so the gate only reports findings this repository can fix.
+
+Gitleaks runs incrementally on each push and over the full history on a manual
+run. Two findings in the pre-rebuild history are allowlisted by fingerprint in
+`.gitleaksignore`, with the reasoning recorded in that file; both are
+placeholders in files that no longer exist. Never allowlist a real secret —
+rotate it, then purge it from history.

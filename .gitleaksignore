@@ -1,0 +1,27 @@
+# Gitleaks allowlist - one fingerprint per line.
+#
+# Fingerprints are <commit>:<path>:<rule>:<line>, so each entry pins a single
+# known finding in a single historical commit. A new leak, or the same string
+# reintroduced in a new commit, still fails the scan.
+#
+# Both entries below are in commit cb7c57f9, the original flat project that was
+# removed when this repository was rebuilt as a modular monorepo. Neither file
+# exists on master any more, and neither value was ever a live credential - the
+# legacy stack was never deployed.
+#
+# History is deliberately not rewritten for these: both are placeholders, and a
+# force-push over a public default branch is a worse trade than two pinned
+# exceptions. Anything that is a real secret must be rotated and purged
+# instead - see SECURITY.md.
+
+# optional-features.tf:83 - grafana.adminPassword = "admin123", a placeholder
+# carrying its own "# Change in production" comment, in a chart release that
+# was never applied. The current stack has no Grafana and sets no passwords in
+# Terraform at all.
+cb7c57f9da36a9fd18cbd9b29a67c6b1ed65491e:optional-features.tf:hashicorp-tf-password:83
+
+# argocd.yaml:526 - the commented-out credentialTemplates example block copied
+# verbatim from the upstream Argo CD chart values. The "private key" is the
+# literal placeholder "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END
+# OPENSSH PRIVATE KEY-----" from the chart documentation.
+cb7c57f9da36a9fd18cbd9b29a67c6b1ed65491e:argocd.yaml:private-key:526
