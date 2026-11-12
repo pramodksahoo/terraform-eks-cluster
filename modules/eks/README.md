@@ -121,22 +121,19 @@ on purpose.
 
 Two tiers, with a hard division of responsibility:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Baseline: self-managed ASG      (this module)                │
-│  • Bottlerocket, pinned AMI version                          │
-│  • fixed size, 100% on-demand, never Spot                    │
-│  • taint CriticalAddonsOnly=true:NoSchedule                  │
-│  • label node.kubernetes.io/role=system                      │
-│  • runs: Karpenter, AWS LBC, CoreDNS, cert-manager, ...      │
-│  • scaled by NOTHING — no Cluster Autoscaler, no Karpenter   │
-└──────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────┐
-│ Elastic: Karpenter              (modules/eks-addons)         │
-│  • dynamic, Spot-capable, consolidating                      │
-│  • instance types chosen per pod                             │
-│  • runs: everything else                                     │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460, "curve": "basis"}} }%%
+flowchart TB
+    base["<b>BASELINE — self-managed ASG</b> &nbsp;(this module)<br/>Bottlerocket · AMI version pinned<br/>fixed size · 100% on-demand · never Spot<br/>taint <code>CriticalAddonsOnly=true:NoSchedule</code><br/>label <code>node.kubernetes.io/role=system</code><br/>──────────────────<br/>runs Karpenter · AWS LBC · CoreDNS · cert-manager · …<br/><b>scaled by nothing</b> — no Cluster Autoscaler, no Karpenter"]
+
+    elastic["<b>ELASTIC — Karpenter</b> &nbsp;(modules/eks-addons)<br/>dynamic · Spot-capable · consolidating<br/>instance types chosen per pod<br/>──────────────────<br/>runs everything else"]
+
+    base -- "runs Karpenter, which provisions" --> elastic
+
+    classDef baseC fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#172554
+    classDef elaC  fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#022c22
+    class base baseC
+    class elastic elaC
 ```
 
 **Karpenter cannot provision the node it runs on.** If Karpenter is the only

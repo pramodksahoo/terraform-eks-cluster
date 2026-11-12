@@ -13,6 +13,7 @@ the AWS Load Balancer Controller — not ingress-nginx.
 ## Contents
 
 - [What you get](#what-you-get)
+- [Architecture at a glance](#architecture-at-a-glance)
 - [Repository layout](#repository-layout)
 - [The two-layer model](#the-two-layer-model)
 - [Do I need the networking module?](#do-i-need-the-networking-module)
@@ -40,6 +41,92 @@ the AWS Load Balancer Controller — not ingress-nginx.
 | **Add-ons** | cert-manager, external-dns, metrics-server, ArgoCD, kube-prometheus-stack, gp3 StorageClass |
 | **Networking** | Four subnet tiers, optional VPC endpoints, flow logs, IPv6-ready |
 | **Region** | `eu-central-1` by default, multi-region ready |
+
+---
+
+## Architecture at a glance
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400, "curve": "basis", "nodeSpacing": 40, "rankSpacing": 45}} }%%
+flowchart TB
+    client(["Internet client"])
+
+    subgraph aws["AWS account · eu-central-1"]
+        direction TB
+
+        subgraph ctl["EKS control plane · 1.37 &nbsp;—&nbsp; AWS-managed · modules/eks"]
+            direction LR
+            cp["private endpoint only<br/>authentication_mode = API"]
+            kms[("KMS CMK<br/>secrets encryption")]
+            cw[("CloudWatch<br/>5 audit log types")]
+            cp --> kms
+            cp --> cw
+        end
+
+        subgraph vpc["VPC 10.0.0.0/16 &nbsp;—&nbsp; modules/networking"]
+            direction TB
+
+            subgraph pub["PUBLIC subnets &nbsp;·&nbsp; route → IGW"]
+                direction LR
+                igw["Internet Gateway"]
+                nat["NAT Gateway"]
+                alb["<b>ALB / NLB</b><br/>ACM certificate<br/>TLS terminates here"]
+            end
+
+            subgraph prv["PRIVATE subnets &nbsp;·&nbsp; egress via NAT, no inbound"]
+                direction LR
+                asg["<b>Baseline ASG</b> · self-managed · nothing autoscales it<br/>Bottlerocket · pinned AMI · 100% on-demand<br/>2 nodes dev / 4 prod · taint CriticalAddonsOnly<br/>─────────────────────<br/><b>Karpenter</b> · AWS LBC · CoreDNS · cert-manager<br/>external-dns · ArgoCD · Prometheus · istiod"]
+                karp["<b>Karpenter nodes</b> · elastic<br/>spot + on-demand · consolidating<br/>application pods · ztunnel mTLS"]
+            end
+
+            subgraph intra["INTRA subnets &nbsp;·&nbsp; no route in or out"]
+                direction LR
+                eni["EKS control-plane ENIs"]
+                vpce["VPC interface endpoints<br/>ECR · STS · EC2 · Logs"]
+            end
+
+            subgraph dbt["DATABASE subnets &nbsp;·&nbsp; no route in or out"]
+                rds[("RDS · ElastiCache")]
+            end
+        end
+    end
+
+    client -- HTTPS --> alb
+    alb -- "Gateway → HTTPRoute → Service" --> karp
+    asg -. provisions .-> karp
+    asg -. reconciles .-> alb
+    karp -- egress --> nat --> igw
+    karp -. "private AWS APIs" .-> vpce
+    karp -. queries .-> rds
+    cp --- eni
+
+    classDef pubC fill:#ffedd5,stroke:#ea580c,stroke-width:1.5px,color:#431407
+    classDef prvC fill:#d1fae5,stroke:#059669,stroke-width:1.5px,color:#022c22
+    classDef intC fill:#ede9fe,stroke:#7c3aed,stroke-width:1.5px,color:#2e1065
+    classDef dbC  fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+    classDef ctlC fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+
+    class igw,nat,alb pubC
+    class asg,karp prvC
+    class eni,vpce intC
+    class rds dbC
+    class cp,kms,cw ctlC
+
+    style aws   fill:#fafafa,stroke:#a1a1aa,stroke-width:1px
+    style vpc   fill:#ffffff,stroke:#52525b,stroke-width:1.5px
+    style ctl   fill:#eff6ff,stroke:#2563eb,stroke-dasharray:4 3
+    style pub   fill:#fff7ed,stroke:#fb923c,stroke-dasharray:4 3
+    style prv   fill:#ecfdf5,stroke:#34d399,stroke-dasharray:4 3
+    style intra fill:#f5f3ff,stroke:#a78bfa,stroke-dasharray:4 3
+    style dbt   fill:#fef2f2,stroke:#f87171,stroke-dasharray:4 3
+```
+
+| Colour | Tier | Reachable from the internet? |
+|---|---|---|
+| 🟠 orange | **public** | Yes — inbound via IGW. Only load balancers and NAT live here |
+| 🟢 green | **private** | Outbound only, through NAT. All nodes and pods |
+| 🟣 purple | **intra** | No route in or out. Control-plane ENIs and VPC endpoints |
+| 🔴 red | **database** | No route in or out. RDS and ElastiCache |
 
 ---
 
@@ -75,19 +162,25 @@ graph is walked, so a cluster endpoint that does not exist yet produces
 
 The fix is a hard split:
 
-```
-┌──────────────────────────┐   terraform_remote_state   ┌──────────────────────┐
-│  layers/infrastructure   │ ─────────────────────────► │   layers/bootstrap   │
-│                          │                            │                      │
-│  provider: aws           │                            │  provider: aws       │
-│                          │                            │  kubernetes/helm/    │
-│  VPC, subnets, NAT       │                            │  kubectl             │
-│  EKS, baseline ASG, KMS  │                            │                      │
-│  IAM, Pod Identity       │                            │  Gateway API + LBC   │
-│                          │                            │  Karpenter, add-ons  │
-│                          │                            │  Istio               │
-└──────────────────────────┘                            └──────────────────────┘
-          state A                                              state B
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 420, "curve": "basis"}} }%%
+flowchart LR
+    A["<b>layers/infrastructure</b> &nbsp;·&nbsp; state A<br/>provider: <b>aws</b> only<br/>──────────────────<br/>VPC · subnets · NAT · routing · endpoints<br/>EKS control plane · baseline ASG · KMS<br/>IAM roles · Pod Identity associations"]
+    B["<b>layers/bootstrap</b> &nbsp;·&nbsp; state B<br/>providers: <b>aws · kubernetes · helm · kubectl</b><br/>──────────────────<br/>Gateway API CRDs · AWS Load Balancer Controller<br/>Karpenter · cert-manager · external-dns · ArgoCD<br/>Istio"]
+
+    A == "terraform_remote_state<br/>(read-only)" ==> B
+
+    nA["never touches a Kubernetes API"]
+    nB["never creates an AWS resource<br/>the cluster depends on"]
+    A -.- nA
+    B -.- nB
+
+    classDef infraC fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+    classDef bootC  fill:#d1fae5,stroke:#059669,stroke-width:1.5px,color:#022c22
+    classDef noteC  fill:#fafafa,stroke:#a1a1aa,stroke-dasharray:3 3,color:#3f3f46
+    class A infraC
+    class B bootC
+    class nA,nB noteC
 ```
 
 `infrastructure` never touches a Kubernetes API. `bootstrap` never creates an
@@ -100,18 +193,26 @@ See [ADR-002](docs/adr/002-two-layer-state-split.md).
 
 ## Do I need the networking module?
 
-```
-                    Do you already have a VPC you must use?
-                               │
-                ┌──────────────┴──────────────┐
-               no                            yes
-                │                             │
-     create_networking = true      create_networking = false
-                │                             │
-    This repo builds the VPC,      You supply existing_vpc_id and
-    subnets, NAT, routing,         the subnet ID lists. No networking
-    endpoints and all the          resource is created or touched.
-    EKS/Karpenter subnet tags.     You own the subnet tags — see below.
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380, "curve": "basis"}} }%%
+flowchart TB
+    q{"Do you already have a VPC<br/>you must deploy into?"}
+
+    q -- "no" --> t["<b>create_networking = true</b>"]
+    q -- "yes" --> f["<b>create_networking = false</b>"]
+
+    t --> t1["This repo builds the VPC, subnets, NAT,<br/>routing, endpoints and flow logs<br/>──────────────────<br/>All EKS and Karpenter subnet tags<br/>are applied for you"]
+    f --> f1["You supply <code>existing_vpc_id</code> and the subnet ID lists<br/>──────────────────<br/>No networking resource is created,<br/>modified or destroyed"]
+    f1 --> f2["<b>You own the subnet tags</b><br/>see the table below — the cluster comes up either way,<br/>then silently fails to place load balancers or nodes"]
+
+    classDef yesC  fill:#d1fae5,stroke:#059669,stroke-width:1.5px,color:#022c22
+    classDef noC   fill:#ffedd5,stroke:#ea580c,stroke-width:1.5px,color:#431407
+    classDef warnC fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#450a0a
+    classDef qC    fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+    class q qC
+    class t,t1 yesC
+    class f,f1 noC
+    class f2 warnC
 ```
 
 When `create_networking = false`, **you** must tag the subnets or the cluster

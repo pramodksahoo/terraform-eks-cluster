@@ -49,38 +49,46 @@ bug above cannot happen.
 
 ## Architecture
 
-```
-                         ┌──────────────── Internet ────────────────┐
-                         │                                          │
-                   ┌─────┴─────┐                             ┌──────┴──────┐
-                   │    IGW    │                             │  Egress-only│
-                   └─────┬─────┘                             │     IGW     │  (IPv6)
-                         │                                   └──────┬──────┘
-  ╔══════════════════════╪══════════════════════════════════════════╪═══════════════╗
-  ║  VPC 10.0.0.0/16     │                                          │               ║
-  ║                      │                                          │               ║
-  ║   ┌──────────────────┴───────────┐  ┌───────────────┐  ┌────────┴────────┐      ║
-  ║   │ public     (per AZ)          │  │               │  │                 │      ║
-  ║   │  • NAT Gateway + EIP         │  │               │  │                 │      ║
-  ║   │  • internet-facing ALB/NLB   │  │               │  │                 │      ║
-  ║   │  kubernetes.io/role/elb=1    │  │               │  │                 │      ║
-  ║   └──────────────┬───────────────┘  │               │  │                 │      ║
-  ║                  │ 0.0.0.0/0        │               │  │                 │      ║
-  ║   ┌──────────────┴───────────────┐  │               │  │                 │      ║
-  ║   │ private    (per AZ)          │──┘               │  │                 │      ║
-  ║   │  • worker nodes              │                  │  │                 │      ║
-  ║   │  • Karpenter capacity        │                  │  │                 │      ║
-  ║   │  • internal ALB/NLB          │                  │  │                 │      ║
-  ║   │  karpenter.sh/discovery      │                  │  │                 │      ║
-  ║   └──────────────────────────────┘                  │  │                 │      ║
-  ║                                                     │  │                 │      ║
-  ║   ┌──────────────────────────────┐  ┌───────────────┴──┴─────────────────┐      ║
-  ║   │ database   (per AZ)          │  │ intra      (per AZ)                │      ║
-  ║   │  • RDS / ElastiCache         │  │  • EKS control-plane ENIs          │      ║
-  ║   │  • NO route off the VPC      │  │  • interface VPC endpoints         │      ║
-  ║   └──────────────────────────────┘  │  • NO route off the VPC            │      ║
-  ║                                     └────────────────────────────────────┘      ║
-  ╚═══════════════════════════════════════════════════════════════════════════════════╝
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400, "curve": "basis"}} }%%
+flowchart TB
+    net(["Internet"])
+
+    subgraph vpc["VPC 10.0.0.0/16"]
+        direction TB
+
+        igw["<b>Internet Gateway</b>"]
+        eigw["<b>Egress-only IGW</b> · IPv6"]
+
+        pub["<b>public</b> &nbsp;·&nbsp; one subnet per AZ<br/>NAT Gateway + EIP · internet-facing ALB / NLB<br/><code>kubernetes.io/role/elb=1</code>"]
+        prv["<b>private</b> &nbsp;·&nbsp; one subnet per AZ<br/>worker nodes · Karpenter capacity · internal ALB / NLB<br/><code>kubernetes.io/role/internal-elb=1</code> · <code>karpenter.sh/discovery</code>"]
+
+        subgraph iso["no route off the VPC"]
+            direction LR
+            intra["<b>intra</b> &nbsp;·&nbsp; one per AZ<br/>EKS control-plane ENIs<br/>interface VPC endpoints"]
+            db["<b>database</b> &nbsp;·&nbsp; one per AZ<br/>RDS · ElastiCache<br/>subnet groups"]
+        end
+    end
+
+    net --> igw
+    net -. IPv6 .-> eigw
+    igw --> pub
+    pub -- "NAT provides 0.0.0.0/0 egress for" --> prv
+    eigw -. "IPv6 egress" .-> prv
+    prv ~~~ iso
+
+    classDef pubC fill:#ffedd5,stroke:#ea580c,stroke-width:1.5px,color:#431407
+    classDef prvC fill:#d1fae5,stroke:#059669,stroke-width:1.5px,color:#022c22
+    classDef intC fill:#ede9fe,stroke:#7c3aed,stroke-width:1.5px,color:#2e1065
+    classDef dbC  fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#450a0a
+    classDef gwC  fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+    class pub pubC
+    class prv prvC
+    class intra intC
+    class db dbC
+    class igw,eigw gwC
+    style vpc fill:#ffffff,stroke:#52525b,stroke-width:1.5px
+    style iso fill:#fafafa,stroke:#a1a1aa,stroke-dasharray:4 3
 ```
 
 ---

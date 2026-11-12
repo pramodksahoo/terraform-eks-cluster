@@ -65,32 +65,40 @@ remains the right tool for east-west mesh concerns and is available as
 
 ## How it works
 
-```
-   Internet
-      │
-      ▼
- ┌─────────┐   provisioned & reconciled by
- │   ALB   │◄────────────────────────────────┐
- └────┬────┘                                 │
-      │ targets pod IPs directly             │
-      ▼                                      │
- ┌──────────┐    ┌─────────────────────────────────────┐
- │   Pods   │    │ aws-load-balancer-controller        │
- └──────────┘    │  (kube-system, Pod Identity)        │
-                 └──────────────┬──────────────────────┘
-                                │ watches
-   ┌────────────────────────────┼────────────────────────────┐
-   │                            │                            │
-┌──┴─────────────┐   ┌──────────┴──────────┐   ┌─────────────┴────┐
-│ GatewayClass   │   │ Gateway             │   │ HTTPRoute        │
-│ aws-alb        │──▶│ listeners, TLS      │◄──│ hostnames, paths │
-│ (platform)     │   │ (platform)          │   │ (app team)       │
-└──────┬─────────┘   └─────────────────────┘   └──────────────────┘
-       │ parametersRef
-┌──────┴──────────────────────┐
-│ LoadBalancerConfiguration   │  scheme, subnets, SGs, ACM cert,
-│ (platform, gateway.k8s.aws) │  SSL policy, LB & listener attributes
-└─────────────────────────────┘
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340, "curve": "basis", "rankSpacing": 70}} }%%
+flowchart LR
+    subgraph k8s["Kubernetes API objects"]
+        direction TB
+        gc["<b>GatewayClass</b> · <code>aws-alb</code><br/>controller gateway.k8s.aws/alb<br/><i>platform team</i>"]
+        lbcfg["<b>LoadBalancerConfiguration</b><br/>scheme · subnets · SGs · ACM cert<br/>SSL policy · LB and listener attributes<br/><i>platform team</i>"]
+        gw["<b>Gateway</b><br/>listeners · TLS<br/><i>platform team</i>"]
+        hr["<b>HTTPRoute</b><br/>hostnames · paths<br/><i>app team</i>"]
+
+        gc -- parametersRef --> lbcfg
+        gc --> gw
+        hr -- "attaches to" --> gw
+    end
+
+    ctrl["<b>aws-load-balancer-controller</b><br/>kube-system · Pod Identity"]
+    alb["<b>ALB</b><br/>ACM certificate · WAF"]
+    pods["<b>Pods</b>"]
+    client(["Client"])
+
+    k8s -. watches .-> ctrl
+    ctrl == "provisions and<br/>reconciles" ==> alb
+    client -- HTTPS --> alb
+    alb -- "targets pod IPs directly<br/>(IP target mode)" --> pods
+
+    classDef platC fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+    classDef appC  fill:#d1fae5,stroke:#059669,stroke-width:1.5px,color:#022c22
+    classDef awsC  fill:#ffedd5,stroke:#ea580c,stroke-width:1.5px,color:#431407
+    classDef ctlC  fill:#ede9fe,stroke:#7c3aed,stroke-width:1.5px,color:#2e1065
+    class gc,gw,lbcfg platC
+    class hr,pods appC
+    class alb awsC
+    class ctrl ctlC
+    style k8s fill:#fafafa,stroke:#a1a1aa,stroke-dasharray:4 3
 ```
 
 `LoadBalancerConfiguration` is the AWS-specific escape hatch. Attaching it to
