@@ -1,0 +1,58 @@
+###############################################################################
+# Example: deploy the cluster into a VPC another team already owns.
+#
+# Copy over infrastructure.tfvars, or pass both files:
+#   -var-file=infrastructure.tfvars -var-file=infrastructure.existing-vpc.tfvars
+#
+# PREREQUISITES
+#
+# The subnets you supply must already carry the discovery tags below. These are
+# not cosmetic: the AWS Load Balancer Controller and Karpenter find subnets
+# exclusively by tag, and without them load balancer provisioning and node
+# launches fail with errors that point nowhere near the real cause.
+#
+#   All subnets given to the cluster:
+#     kubernetes.io/cluster/<cluster-name> = shared
+#
+#   Public subnets (internet-facing load balancers):
+#     kubernetes.io/role/elb = 1
+#
+#   Private subnets (internal load balancers and Karpenter nodes):
+#     kubernetes.io/role/internal-elb = 1
+#     karpenter.sh/discovery          = <cluster-name>
+#
+# <cluster-name> is "<name>-<environment>", so "platform-dev" with the values
+# below. After a plan, the tag_requirements_for_existing_subnets output prints
+# the exact map for your configuration.
+#
+# The private subnets also need outbound internet access, through a NAT Gateway
+# or a complete set of VPC endpoints. Nodes cannot join the cluster without it.
+###############################################################################
+
+create_networking = false
+
+existing_vpc_id = "vpc-CHANGE-ME"
+
+# At least two subnets in two different Availability Zones. EKS refuses to
+# create a cluster in a single AZ.
+existing_private_subnet_ids = [
+  "subnet-CHANGE-ME-private-a",
+  "subnet-CHANGE-ME-private-b",
+  "subnet-CHANGE-ME-private-c",
+]
+
+# Optional. Omit entirely for a cluster with no public ingress.
+existing_public_subnet_ids = [
+  "subnet-CHANGE-ME-public-a",
+  "subnet-CHANGE-ME-public-b",
+  "subnet-CHANGE-ME-public-c",
+]
+
+# Optional. Dedicated subnets for the control-plane ENIs keep them isolated
+# from workload IP exhaustion in the node subnets. Defaults to the private
+# subnets when omitted.
+existing_control_plane_subnet_ids = []
+
+# Every vpc_*, az_*, nat_*, endpoint and flow-log variable is ignored when
+# create_networking is false. No networking resource is created, and nothing in
+# the supplied VPC is modified.

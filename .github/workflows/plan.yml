@@ -1,0 +1,118 @@
+name: Plan
+
+on:
+  pull_request:
+    paths:
+      - "modules/**"
+      - "layers/**"
+      - "environments/**"
+      - ".github/workflows/plan.yml"
+
+# id-token: OIDC federation into AWS. No long-lived access keys are stored in
+# this repository or in GitHub secrets.
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "0"
+  AWS_REGION: eu-central-1
+
+jobs:
+  plan:
+    name: Plan ${{ matrix.layer }} (dev)
+    runs-on: ubuntu-latest
+    # Hold the AWS role ARN and state bucket in an environment so the plan can
+    # be gated on approval if the account is sensitive.
+    environment: dev
+    strategy:
+      fail-fast: true
+      # infrastructure must plan before bootstrap: bootstrap reads its remote
+      # state, and a matrix that ran them in parallel would be meaningless.
+      max-parallel: 1
+      matrix:
+        layer: [infrastructure, bootstrap]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-session-name: gha-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: layers/${{ matrix.layer }}
+        run: |
+          terraform init \
+            -backend-config=../../environments/dev/${{ matrix.layer }}.backend.hcl
+
+      - name: terraform plan
+        id: plan
+        working-directory: layers/${{ matrix.layer }}
+        continue-on-error: true
+        run: |
+          terraform plan -lock=false -no-color -detailed-exitcode \
+            -var-file=../../environments/dev/${{ matrix.layer }}.tfvars \
+            -out=tfplan | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Comment plan
+        uses: actions/github-script@v8
+        env:
+          LAYER: ${{ matrix.layer }}
+        with:
+          script: |
+            const fs = require('fs');
+            const layer = process.env.LAYER;
+            let plan = fs.readFileSync(`layers/${layer}/plan.txt`, 'utf8');
+
+            // GitHub rejects comments over 65536 characters.
+            const limit = 60000;
+            if (plan.length > limit) {
+              plan = plan.slice(-limit) + '\n\n... truncated, see the job log ...';
+            }
+
+            const marker = `<!-- plan:${layer} -->`;
+            const body = [
+              marker,
+              `### Plan — \`layers/${layer}\` (dev)`,
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```terraform',
+              plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: context.issue.number, body,
+              });
+            }
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1

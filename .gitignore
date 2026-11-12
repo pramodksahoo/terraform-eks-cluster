@@ -1,0 +1,62 @@
+# Terraform state - NEVER commit
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.tfstate.lock.info
+
+# Terraform working directories
+**/.terraform/*
+.terraform.lock.hcl.bak
+
+# Variable files may contain account IDs, CIDRs or secrets.
+# Committed environment files live under environments/ and are explicitly allowed below.
+*.tfvars
+*.tfvars.json
+!environments/**/*.tfvars
+
+# Backend partial-config may contain bucket names
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Plan output
+*.tfplan
+*.tfplan.*
+plan.out
+tfplan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# CLI config
+.terraformrc
+terraform.rc
+
+# Credentials - defence in depth
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+.aws/
+kubeconfig
+kubeconfig-*
+*.kubeconfig
+
+# Tooling output
+.infracost/
+.tflint.d/
+tfsec-results.*
+checkov-results.*
+trivy-results.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

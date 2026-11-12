@@ -1,0 +1,50 @@
+# Run `pre-commit install` once per clone.
+#
+# The same checks run in CI, so a clean pre-commit run means a clean PR.
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      # Terraform state and plan files must never be committed; they contain
+      # resource IDs, CA data and occasionally secrets.
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: detect-private-key
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.102.0
+    hooks:
+      - id: terraform_fmt
+
+      - id: terraform_validate
+        args:
+          - --init-args=-backend=false
+          - --hook-config=--retry-once-with-cleanup=true
+
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+
+      # Input and output tables are generated. Editing them by hand guarantees
+      # drift, so the hook regenerates and fails if the result differs.
+      - id: terraform_docs
+        args:
+          - --args=--config=.terraform-docs.yml
+
+      - id: terraform_trivy
+        args:
+          - --args=--severity=HIGH,CRITICAL
+          - --args=--skip-dirs=**/.terraform
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks

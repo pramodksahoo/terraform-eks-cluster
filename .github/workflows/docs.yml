@@ -1,0 +1,53 @@
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: terraform-docs drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: terraform-docs/gh-actions@v1.4.1
+        with:
+          working-dir: modules/networking,modules/eks,modules/eks-gateway,modules/eks-addons,modules/istio,layers/infrastructure,layers/bootstrap
+          config-file: .terraform-docs.yml
+          output-file: README.md
+          output-method: inject
+          # Fail rather than commit. A README that a bot silently rewrites is a
+          # README nobody reads; the author should regenerate and review it.
+          fail-on-diff: true
+
+      - name: How to fix
+        if: failure()
+        run: |
+          echo "::error::Generated documentation is out of date."
+          echo "Run locally and commit the result:"
+          echo "  for d in modules/networking modules/eks modules/eks-gateway \\"
+          echo "           modules/eks-addons modules/istio \\"
+          echo "           layers/infrastructure layers/bootstrap; do"
+          echo "    terraform-docs --config .terraform-docs.yml \$d"
+          echo "  done"
+          exit 1
+
+  links:
+    name: Link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --offline
+            --include-fragments
+            '**/*.md'
+          fail: true

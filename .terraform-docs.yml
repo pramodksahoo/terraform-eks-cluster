@@ -1,0 +1,42 @@
+# terraform-docs configuration.
+#
+# Input and output tables in every module README are generated, not written by
+# hand. Hand-maintained tables drift from the code within a release or two and
+# then actively mislead; generated ones are checked in CI.
+#
+#   terraform-docs --config .terraform-docs.yml modules/networking
+#
+# Everything outside the BEGIN_TF_DOCS / END_TF_DOCS markers is preserved.
+
+formatter: markdown table
+version: ""
+
+recursive:
+  enabled: false
+
+output:
+  file: README.md
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+
+sort:
+  enabled: true
+  by: required
+
+settings:
+  anchor: true
+  color: true
+  default: true
+  description: true
+  escape: true
+  hide-empty: true
+  html: true
+  indent: 2
+  lockfile: false
+  read-comments: true
+  required: true
+  sensitive: true
+  type: true
