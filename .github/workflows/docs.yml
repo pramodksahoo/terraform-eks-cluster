@@ -52,3 +52,24 @@ jobs:
             --include-fragments
             '**/*.md'
           fail: true
+
+  # Single required status check, so branch protection has one stable name to
+  # pin per workflow.
+  gate:
+    name: Docs complete
+    runs-on: ubuntu-latest
+    needs: [drift, links]
+    if: always()
+    steps:
+      - name: Fail if any job did not succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a required job reported '$r'"
+              exit 1
+            fi
+          done
+          echo "all required jobs succeeded"

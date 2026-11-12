@@ -145,3 +145,27 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  # Single required status check. The validate job is a matrix, so its check
+  # names change whenever a module is added or removed. Requiring those names
+  # directly in branch protection would block every pull request the moment a
+  # module is renamed, because a required check that never runs never passes.
+  # This job collapses all of them into one stable name to require instead.
+  gate:
+    name: Validate complete
+    runs-on: ubuntu-latest
+    needs: [fmt, discover, validate, examples, lint, security, secrets]
+    if: always()
+    steps:
+      - name: Fail if any job did not succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a required job reported '$r'"
+              exit 1
+            fi
+          done
+          echo "all required jobs succeeded"
